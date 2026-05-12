@@ -1,197 +1,167 @@
 #include <iostream>
-#include <fstream>
 #include <string>
-#include <sstream>
-#include <cstdlib>
-#include <sys/utsname.h>
+#include <vector>
+#include <fstream>
 #include <unistd.h>
-#include <limits.h>
-#include <iomanip>
+#include <sys/utsname.h>
 
-// ---------------- Utility ----------------
-static inline std::string trim(const std::string &s) {
-    const auto start = s.find_first_not_of(" \t");
-    if (start == std::string::npos) return "";
+// ---------------- ASCII LOGOS ----------------
 
-    const auto end = s.find_last_not_of(" \t");
-    return s.substr(start, end - start + 1);
-}
-
-static inline std::string stripQuotes(std::string s) {
-    if (!s.empty() && s.front() == '"') s.erase(0, 1);
-    if (!s.empty() && s.back() == '"') s.pop_back();
-    return s;
-}
-
-static inline bool startsWith(const std::string &s, const std::string &prefix) {
-    return s.rfind(prefix, 0) == 0;
-}
-
-// ---------------- System Info Struct ----------------
-struct SystemInfo {
-    std::string user;
-    std::string host;
-    std::string os;
-    std::string kernel;
-    std::string cpu;
-    std::string ram;
+std::vector<std::string> arch = {
+"       /\\        ",
+"      /  \\       ",
+"     /\\   \\      ",
+"    /      \\     ",
+"   /   ,,   \\    ",
+"  /   |  |   \\   ",
+" /_-''    ''-_\\  "
 };
 
-// ---------------- OS ----------------
-std::string getOS() {
+std::vector<std::string> ubuntu = {
+"            _",
+"        ---(_)",
+"    _/  _/  _/ ",
+"   / _/  _/    ",
+"  /_/  _/      ",
+"  (_)_/        "
+};
+
+std::vector<std::string> fedora = {
+"      _____",
+"     /  __ \\",
+"    /  /  \\ \\",
+"   |  |    | |",
+"    \\  \\__/ /",
+"     \\_____/ "
+};
+
+std::vector<std::string> mint = {
+"      ______________",
+"     |   _   _     |",
+"     |  | | | |    |",
+"     |  |_| |_|    |",
+"     |_____________|"
+};
+
+std::vector<std::string> fallback = {
+"    .--.",
+"   |o_o |",
+"   |:_/ |",
+"  //   \\ \\",
+" (|     | )",
+"/'\\_   _/`\\",
+"\\___)=(___/"
+};
+
+// ---------------- OS DETECTION ----------------
+
+std::string getOSID() {
     std::ifstream f("/etc/os-release");
-    if (!f.is_open()) return "Unknown OS";
-
     std::string line;
-    while (std::getline(f, line)) {
-        if (startsWith(line, "PRETTY_NAME=")) {
-            auto pos = line.find('=');
-            if (pos == std::string::npos) continue;
 
-            return stripQuotes(line.substr(pos + 1));
+    while (std::getline(f, line)) {
+        if (line.rfind("ID=", 0) == 0) {
+            return line.substr(3);
         }
     }
-
-    return "Unknown OS";
+    return "linux";
 }
 
-// ---------------- Kernel ----------------
+std::vector<std::string> getLogo() {
+    std::string id = getOSID();
+
+    if (id.find("arch") != std::string::npos) return arch;
+    if (id.find("ubuntu") != std::string::npos) return ubuntu;
+    if (id.find("fedora") != std::string::npos) return fedora;
+    if (id.find("mint") != std::string::npos) return mint;
+
+    return fallback;
+}
+
+// ---------------- SYSTEM INFO ----------------
+
+std::string getUser() {
+    const char* u = getenv("USER");
+    return u ? u : "user";
+}
+
+std::string getHost() {
+    char buf[256] = {0};
+    gethostname(buf, sizeof(buf));
+    return buf;
+}
+
 std::string getKernel() {
-    struct utsname buf;
-    if (uname(&buf) == 0)
-        return buf.release;
-
-    return "Unknown Kernel";
-}
-
-// ---------------- User ----------------
-std::string getUsername() {
-    const char* user = getenv("USER");
-    return user ? user : "unknown";
-}
-
-// ---------------- Host ----------------
-std::string getHostname() {
-    char hostname[HOST_NAME_MAX] = {0};
-    if (gethostname(hostname, HOST_NAME_MAX) == 0)
-        return hostname;
-
+    struct utsname u;
+    if (uname(&u) == 0) return u.release;
     return "unknown";
 }
 
-// ---------------- RAM (robust + auto scaling) ----------------
-std::string formatMemory(long kb) {
-    double value = kb;
+std::string getOSPretty() {
+    std::ifstream f("/etc/os-release");
+    std::string line;
 
-    const char* unit = "KB";
-    if (value > 1024 * 1024) {
-        value /= (1024 * 1024);
-        unit = "GB";
-    } else if (value > 1024) {
-        value /= 1024;
-        unit = "MB";
+    while (std::getline(f, line)) {
+        if (line.rfind("PRETTY_NAME=", 0) == 0) {
+            return line.substr(line.find('=') + 1);
+        }
     }
-
-    std::ostringstream oss;
-    oss << std::fixed << std::setprecision(1)
-        << value << " " << unit;
-
-    return oss.str();
+    return "Linux";
 }
 
 std::string getRAM() {
     std::ifstream f("/proc/meminfo");
-    if (!f.is_open()) return "Unknown RAM";
-
     std::string line;
-    long total = -1, available = -1;
+
+    long total = 0, avail = 0;
 
     while (std::getline(f, line)) {
-        std::istringstream iss(line);
-        std::string key;
-        long value;
-        std::string unit;
+        if (line.rfind("MemTotal:", 0) == 0)
+            total = std::stol(line.substr(10));
 
-        if (!(iss >> key >> value >> unit)) continue;
-
-        if (key == "MemTotal:") total = value;
-        else if (key == "MemAvailable:") available = value;
+        if (line.rfind("MemAvailable:", 0) == 0)
+            avail = std::stol(line.substr(14));
     }
 
-    if (total < 0 || available < 0) return "Unknown RAM";
+    long used = total - avail;
 
-    long used = total - available;
-
-    return formatMemory(used) + " / " + formatMemory(total);
+    return std::to_string(used / 1024) + "MB / " +
+           std::to_string(total / 1024) + "MB";
 }
 
-// ---------------- CPU ----------------
-std::string getCPU() {
-    std::ifstream f("/proc/cpuinfo");
-    if (!f.is_open()) return "Unknown CPU";
+// ---------------- PRINT ----------------
 
-    std::string line;
-    while (std::getline(f, line)) {
-        if (startsWith(line, "model name")) {
-            auto pos = line.find(':');
-            if (pos == std::string::npos) continue;
+void print() {
+    auto logo = getLogo();
 
-            return trim(line.substr(pos + 1));
-        }
+    std::vector<std::string> info = {
+        getUser() + "@" + getHost(),
+        "OS:     " + getOSPretty(),
+        "Kernel: " + getKernel(),
+        "RAM:    " + getRAM()
+    };
+
+    int lines = std::max(logo.size(), info.size());
+
+    for (int i = 0; i < lines; i++) {
+
+        if (i < (int)logo.size())
+            std::cout << logo[i];
+        else
+            std::cout << std::string(logo[0].size(), ' ');
+
+        std::cout << "   ";
+
+        if (i < (int)info.size())
+            std::cout << info[i];
+
+        std::cout << "\n";
     }
-
-    return "Unknown CPU";
-}
-
-// ---------------- Build System Info ----------------
-SystemInfo collectInfo() {
-    SystemInfo info;
-
-    info.user   = getUsername();
-    info.host   = getHostname();
-    info.os     = getOS();
-    info.kernel = getKernel();
-    info.cpu    = getCPU();
-    info.ram    = getRAM();
-
-    return info;
-}
-
-// ---------------- Output (pretty) ----------------
-void printPretty(const SystemInfo& i) {
-    std::cout << i.user << "@" << i.host << "\n";
-    std::cout << "-----------------\n";
-    std::cout << "OS:     " << i.os << "\n";
-    std::cout << "Kernel: " << i.kernel << "\n";
-    std::cout << "CPU:    " << i.cpu << "\n";
-    std::cout << "RAM:    " << i.ram << "\n";
-}
-
-// ---------------- Output (JSON mode) ----------------
-void printJSON(const SystemInfo& i) {
-    std::cout << "{\n";
-    std::cout << "  \"user\": \"" << i.user << "\",\n";
-    std::cout << "  \"host\": \"" << i.host << "\",\n";
-    std::cout << "  \"os\": \"" << i.os << "\",\n";
-    std::cout << "  \"kernel\": \"" << i.kernel << "\",\n";
-    std::cout << "  \"cpu\": \"" << i.cpu << "\",\n";
-    std::cout << "  \"ram\": \"" << i.ram << "\"\n";
-    std::cout << "}\n";
 }
 
 // ---------------- MAIN ----------------
-int main(int argc, char** argv) {
-    SystemInfo info = collectInfo();
 
-    bool json = false;
-    if (argc > 1 && std::string(argv[1]) == "--json") {
-        json = true;
-    }
-
-    if (json)
-        printJSON(info);
-    else
-        printPretty(info);
-
+int main() {
+    print();
     return 0;
 }
